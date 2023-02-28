@@ -11,16 +11,17 @@ from functools import partial
 from types import FunctionType
 from typing import Any, Callable
 
-from pydantic_core import SchemaSerializer, SchemaValidator, core_schema
-from typing_extensions import Annotated
+from pydantic_core import SchemaError, SchemaSerializer, SchemaValidator, core_schema
 
 from ..errors import PydanticUndefinedAnnotation, PydanticUserError
 from ..fields import FieldInfo, ModelPrivateAttr, PrivateAttr
 from . import _typing_extra
 from ._core_metadata import build_metadata_dict
+from ._core_utils import WalkAndApply
 from ._decorators import SerializationFunctions, ValidationFunctions
-from ._fields import SchemaRef, SelfType, Undefined
-from ._generate_schema import generate_config, model_fields_schema
+from ._fields import Undefined, get_self_type
+from ._generate_schema import GenerateSchema, generate_config, model_fields_schema
+from ._generics import TypeVarType
 from ._utils import ClassAttribute, is_valid_identifier
 
 if typing.TYPE_CHECKING:
@@ -30,7 +31,6 @@ if typing.TYPE_CHECKING:
     from ..main import BaseModel
 
 __all__ = 'object_setattr', 'init_private_attributes', 'inspect_namespace', 'complete_model_class'
-
 
 IGNORED_TYPES: tuple[Any, ...] = (FunctionType, property, type, classmethod, staticmethod)
 object_setattr = object.__setattr__
@@ -101,7 +101,7 @@ def deferred_model_get_pydantic_validation_schema(
     the validator and set `__pydantic_validator__` as that would fail in some cases - e.g. mutually referencing
     models.
     """
-    inner_schema, fields = build_inner_schema(
+    inner_schema, fields, generator = build_inner_schema(
         cls,
         cls.__name__,
         cls.__pydantic_validator_functions__,
@@ -133,6 +133,7 @@ def complete_model_class(
     *,
     raise_errors: bool = True,
     types_namespace: dict[str, Any] | None = None,
+    typevars_map: dict[str, Any] | None = None,
 ) -> bool:
     """
     Collect bound validator functions, build the model validation schema and set the model signature.
@@ -146,7 +147,7 @@ def complete_model_class(
     serialization_functions.set_bound_functions(cls)
 
     try:
-        inner_schema, fields = build_inner_schema(
+        inner_schema, fields, generator = build_inner_schema(
             cls, name, validator_functions, serialization_functions, bases, types_namespace
         )
     except PydanticUndefinedAnnotation as e:
@@ -175,7 +176,23 @@ def complete_model_class(
 
     core_config = generate_config(cls)
     cls.model_fields = fields
-    cls.__pydantic_validator__ = SchemaValidator(inner_schema, core_config)
+
+    # Need to make sure things aren't defined multiple times, which can happen as a result of recursive calls
+    model_ref_schema = inner_schema
+    while model_ref_schema['type'] in {'definitions', 'function'}:
+        model_ref_schema = model_ref_schema['schema']
+    model_ref = f"Model:{model_ref_schema['ref']}"
+    inner_schema = consolidate_refs(inner_schema)
+    if typevars_map:
+        inner_schema = apply_typevars_map(inner_schema, typevars_map, generator)
+        inner_schema = consolidate_refs(inner_schema)
+
+    try:
+        cls.__pydantic_validator__ = SchemaValidator(inner_schema, core_config)
+    except SchemaError as e:
+        print(inner_schema)
+        raise e
+
     model_post_init = '__pydantic_post_init__' if hasattr(cls, '__pydantic_post_init__') else None
     js_metadata = cls.model_json_schema_metadata()
     cls.__pydantic_core_schema__ = outer_schema = core_schema.model_schema(
@@ -184,6 +201,7 @@ def complete_model_class(
         config=core_config,
         call_after_init=model_post_init,
         metadata=build_metadata_dict(js_metadata=js_metadata),
+        ref=model_ref,
     )
     cls.__pydantic_serializer__ = SchemaSerializer(outer_schema, core_config)
     cls.__pydantic_model_complete__ = True
@@ -202,7 +220,7 @@ def build_inner_schema(  # noqa: C901
     serialization_functions: SerializationFunctions,
     bases: tuple[type[Any], ...],
     types_namespace: dict[str, Any] | None = None,
-) -> tuple[core_schema.CoreSchema, dict[str, FieldInfo]]:
+) -> tuple[core_schema.CoreSchema, dict[str, FieldInfo], GenerateSchema]:
     module_name = getattr(cls, '__module__', None)
     global_ns: dict[str, Any] | None = None
     if module_name:
@@ -224,7 +242,7 @@ def build_inner_schema(  # noqa: C901
         core_schema.definition_reference_schema(model_ref),
         metadata=build_metadata_dict(js_metadata=model_js_metadata),
     )
-    local_ns = {name: Annotated[SelfType, SchemaRef(self_schema)]}
+    local_ns = {name: get_self_type(self_schema)}
 
     # get type hints and raise a PydanticUndefinedAnnotation if any types are undefined
     try:
@@ -276,7 +294,7 @@ def build_inner_schema(  # noqa: C901
             # 2. To avoid false positives in the NameError check above
             delattr(cls, ann_name)
 
-    schema = model_fields_schema(
+    schema, generator = model_fields_schema(
         model_ref,
         fields,
         validator_functions,
@@ -284,7 +302,7 @@ def build_inner_schema(  # noqa: C901
         cls.model_config['arbitrary_types_allowed'],
         local_ns,
     )
-    return schema, fields
+    return schema, fields, generator
 
 
 def generate_model_signature(init: Callable[..., None], fields: dict[str, FieldInfo], config: ConfigDict) -> Signature:
@@ -370,3 +388,104 @@ class MockValidator:
         # raise an AttributeError if `item` doesn't exist
         getattr(SchemaValidator, item)
         raise PydanticUserError(self._error_message)
+
+
+# TODO: This is the spot to begin when I resume work next -- defining these functions and testing they work
+def consolidate_refs(schema: core_schema.CoreSchema) -> core_schema.CoreSchema:
+    schema = _remove_duplicate_refs(schema)
+    schema = _bubble_up_definitions(schema)
+    if 'definitions' in schema:
+        for s in schema['definitions']:
+            assert s['type'] != 'definitions'
+    return schema
+
+
+def _remove_duplicate_refs(schema: core_schema.CoreSchema) -> core_schema.CoreSchema:
+    refs = set()
+
+    def _handle_ref(schema):
+        if 'ref' in schema:
+            if schema['ref'] in refs:
+                return core_schema.definition_reference_schema(schema_ref=schema['ref'])
+            refs.add(schema['ref'])
+        return schema
+
+    schema = WalkAndApply(_handle_ref).walk(schema)
+    return schema
+
+
+def _bubble_up_definitions(schema: core_schema.CoreSchema) -> core_schema.CoreSchema:
+    all_definitions = {}
+
+    def _handle_definitions(schema):
+        if schema['type'] == 'definitions':
+            for definition in schema['definitions']:
+                definition_ref = definition['ref']
+                handled_definition = _handle_definitions(definition)
+                if definition_ref not in all_definitions:
+                    all_definitions[definition_ref] = handled_definition
+            schema = schema['schema']
+            return _handle_definitions(schema)
+        elif 'ref' in schema:
+            schema_ref = schema['ref']
+            if schema_ref not in all_definitions:
+                all_definitions[schema_ref] = schema
+            return core_schema.definition_reference_schema(schema_ref=schema_ref)
+        else:
+            return schema
+
+    schema = WalkAndApply(_handle_definitions, apply_before_recurse=True).walk(schema)
+
+    if all_definitions:
+        for k, v in all_definitions.items():
+            v['ref'] = k
+        return core_schema.definitions_schema(schema, list(all_definitions.values()))
+    else:
+        return schema
+
+
+def apply_typevars_map(
+    schema: core_schema.CoreSchema, typevars_map: dict[TypeVarType, Any], generator: GenerateSchema
+) -> core_schema.CoreSchema:
+    if schema['type'] != 'definitions':
+        return schema
+
+    schema = schema.copy()
+    schema_remapping = {}
+    for k, v in typevars_map.items():
+        ref_ = generator._typevar_ref_schema(k)['schema_ref']
+        schema_ = generator.wrapped_generate_schema(v)
+        schema_['ref'] = ref_
+        schema_remapping[ref_] = schema_
+
+    new_definitions = []
+    for definition in schema['definitions']:
+        remapped = schema_remapping.get(definition['ref'], definition)
+        new_definitions.append(remapped)
+    schema['definitions'] = new_definitions
+
+    def _parametrize_models(definition):
+        if definition['type'] != 'model':
+            return definition
+        definition = definition.copy()
+        cls = definition['cls']
+        parameters = getattr(cls, '__parameters__', None)
+        if parameters is not None:
+            args = tuple(typevars_map.get(p) for p in parameters)
+            cls = cls[args]
+            definition['cls'] = cls
+        return definition
+
+    schema = WalkAndApply(_parametrize_models).walk(schema)
+    return schema
+
+
+"""
+Things to work through:
+* How typevar substitutions should be tracked/done
+* How models should be updated
+    * Generic models should probably track which variables might need updating
+    * Ideally you can look at the class and figure it out..?
+    * 
+
+"""

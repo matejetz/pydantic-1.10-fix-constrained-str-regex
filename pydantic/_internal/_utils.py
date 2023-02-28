@@ -94,13 +94,17 @@ def lenient_isinstance(o: Any, class_or_tuple: type[Any] | tuple[type[Any], ...]
         return False
 
 
-def lenient_issubclass(cls: Any, class_or_tuple: Any) -> bool:
-    try:
-        return isinstance(cls, type) and issubclass(cls, class_or_tuple)
-    except TypeError:
-        if isinstance(cls, _typing_extra.WithArgsTypes):
-            return False
-        raise  # pragma: no cover
+if typing.TYPE_CHECKING:
+    lenient_issubclass = issubclass
+else:
+
+    def lenient_issubclass(cls: Any, class_or_tuple: Any) -> bool:
+        try:
+            return isinstance(cls, type) and issubclass(cls, class_or_tuple)
+        except TypeError:
+            if isinstance(cls, _typing_extra.WithArgsTypes):
+                return False
+            raise  # pragma: no cover
 
 
 def is_valid_identifier(identifier: str) -> bool:

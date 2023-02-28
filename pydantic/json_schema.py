@@ -205,7 +205,7 @@ class GenerateJsonSchema:
 
         # Remove the top-level $ref if present; note that the _generate method already ensures there are no sibling keys
         ref = json_schema.get('$ref')
-        if ref is not None:
+        while ref is not None:  # may need to unpack multiple levels
             ref_json_schema = self.get_schema_from_definitions(JsonRef(ref))
             if json_ref_counts[ref] > 1 or ref_json_schema is None:
                 # Keep the ref, but use an allOf to remove the top level $ref
@@ -214,6 +214,7 @@ class GenerateJsonSchema:
                 # "Unpack" the ref since this is the only reference
                 json_schema = ref_json_schema.copy()  # copy to prevent recursive dict reference
                 json_ref_counts[ref] -= 1
+            ref = json_schema.get('$ref')
 
         # Remove any definitions that, thanks to $ref-substitution, are no longer present.
         # I think this should only _possibly_ apply to the root model, though I'm not 100% sure.
@@ -277,7 +278,7 @@ class GenerateJsonSchema:
         json_schema = self.handle_ref_overrides(json_schema)
 
         # Populate the definitions
-        if 'ref' in schema:
+        if 'ref' in schema and schema['type'] != 'model':
             core_ref = CoreRef(schema['ref'])  # type: ignore[typeddict-item]
             defs_ref, ref_json_schema = self.get_cache_defs_ref_schema(core_ref)
             self.definitions[defs_ref] = json_schema
@@ -286,6 +287,11 @@ class GenerateJsonSchema:
         return json_schema
 
     # ### Schema generation methods
+    def definitions_schema(self, schema: core_schema.DefinitionsSchema) -> JsonSchemaValue:
+        for definition in schema['definitions']:
+            self.generate_inner(definition)
+        return self.generate_inner(schema['schema'])
+
     def any_schema(self, schema: core_schema.AnySchema) -> JsonSchemaValue:
         return {}
 
@@ -742,6 +748,8 @@ class GenerateJsonSchema:
                 return self.field_title_should_be_set(schema['schema'])  # type: ignore[typeddict-item]
             if schema['type'] == 'function' and 'schema' in schema:
                 return self.field_title_should_be_set(schema['schema'])  # type: ignore[typeddict-item]
+            if schema['type'] == 'definitions':
+                return False  # I think definitions schemas should only happen for models..
             return not schema.get('ref')  # models, enums should not have titles set
 
         else:
