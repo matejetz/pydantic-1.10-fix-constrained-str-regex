@@ -45,10 +45,23 @@ class PydanticGeneralMetadata(PydanticMetadata):
         self.__dict__ = metadata
 
 
-class SelfType:
+class BaseSelfType:
     """
     No-op marker class for `self` type reference.
     """
+
+    def __class_getitem__(cls, item: Any) -> Any:
+        # We need to implement this method to prevent errors due to
+        # the `typing` module attempting to call __class_getitem__ on this type
+        # when resolving generic forward references.
+        return cls
+
+
+def get_self_type(self_schema: core_schema.CoreSchema) -> type[BaseSelfType]:
+    class SelfType(BaseSelfType):
+        __pydantic_core_schema__ = self_schema
+
+    return SelfType
 
 
 class SchemaRef(Representation):

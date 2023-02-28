@@ -14,12 +14,14 @@ from annotated_types import BaseMetadata, GroupedMetadata
 from pydantic_core import SchemaError, SchemaValidator, core_schema
 from typing_extensions import Annotated, Literal, get_args, get_origin, is_typeddict
 
+from ._generics import replace_types
 from ..errors import PydanticSchemaGenerationError
 from ..fields import FieldInfo
 from ..json_schema import JsonSchemaMetadata, JsonSchemaValue
 from . import _fields, _typing_extra
 from ._core_metadata import CoreMetadataHandler, build_metadata_dict
 from ._decorators import SerializationFunctions, Serializer, ValidationFunctions, Validator
+from ._utils import lenient_issubclass
 
 if TYPE_CHECKING:
     from ..main import BaseModel
@@ -34,12 +36,13 @@ def model_fields_schema(
     serialization_functions: SerializationFunctions,
     arbitrary_types: bool,
     types_namespace: dict[str, Any] | None,
+    typevars_map: dict[Any, Any] | None
 ) -> core_schema.CoreSchema:
     """
     Generate schema for the fields of a pydantic model, this is slightly different to the schema for the model itself,
     since this is typed_dict schema which is used to create the model.
     """
-    schema_generator = GenerateSchema(arbitrary_types, types_namespace)
+    schema_generator = GenerateSchema(arbitrary_types, types_namespace, typevars_map)
     schema: core_schema.CoreSchema = core_schema.typed_dict_schema(
         {
             k: schema_generator.generate_field_schema(k, v, validator_functions, serialization_functions)
@@ -72,11 +75,12 @@ def generate_config(cls: type[BaseModel]) -> core_schema.CoreConfig:
 
 
 class GenerateSchema:
-    __slots__ = 'arbitrary_types', 'types_namespace'
+    __slots__ = 'arbitrary_types', 'types_namespace', 'type_vars_map'
 
-    def __init__(self, arbitrary_types: bool, types_namespace: dict[str, Any] | None):
+    def __init__(self, arbitrary_types: bool, types_namespace: dict[str, Any] | None, type_vars_map: dict[Any, Any] | None):
         self.arbitrary_types = arbitrary_types
         self.types_namespace = types_namespace
+        self.type_vars_map = type_vars_map
 
     def generate_schema(self, obj: Any) -> core_schema.CoreSchema:
         schema = self._generate_schema(obj)
@@ -88,6 +92,16 @@ class GenerateSchema:
 
         CoreMetadataHandler(schema).combine_modify_js_functions(modify_js_function)
 
+        return schema
+
+    def _unsubstituted_typevar_schema(self, typevar: typing.TypeVar) -> core_schema.CoreSchema:
+        assert isinstance(typevar, typing.TypeVar)
+        if typevar.__bound__:
+            schema = self.generate_schema(typevar.__bound__)
+        elif typevar.__constraints__:
+            schema = self._union_schema(typing.Union[typevar.__constraints__])
+        else:
+            schema = core_schema.AnySchema(type='any')
         return schema
 
     def _generate_schema_from_property(self, obj: Any, source: Any) -> core_schema.CoreSchema | None:
@@ -116,11 +130,11 @@ class GenerateSchema:
         if from_property is not None:
             return from_property
 
-        if obj is _fields.SelfType:
+        if lenient_issubclass(obj, _fields.BaseSelfType):
             # returned value doesn't do anything here since SchemaRef should always be used as an annotated argument
             # which replaces the schema returned here, we return `SelfType` to make debugging easier if
             # this schema is not overwritten
-            return obj
+            return obj.__pydantic_core_schema__
         try:
             if obj in {bool, int, float, str, bytes, list, set, frozenset, tuple, dict}:
                 # Note: obj may fail to be hashable if it has an unhashable annotation
@@ -151,6 +165,8 @@ class GenerateSchema:
             if issubclass(obj, dict):
                 return self._dict_subclass_schema(obj)
             # probably need to take care of other subclasses here
+        elif isinstance(obj, typing.TypeVar):
+            return self._unsubstituted_typevar_schema(obj)
 
         std_schema = self._std_types_schema(obj)
         if std_schema is not None:
@@ -226,7 +242,11 @@ class GenerateSchema:
         Prepare a TypedDictField to represent a model or typeddict field.
         """
         assert field_info.annotation is not None, 'field_info.annotation should not be None when generating a schema'
-        schema = self.generate_schema(field_info.annotation)
+        # TODO: May want to move this replace_types call into the `self.generate_schema`.
+        #   However, probably don't need/want to call it recursively, even though `self.generate_schema` does get called
+        #   recursively. Perhaps(?) this will be more of an issue if/when we create validators for custom generics that
+        #   aren't BaseModels.
+        schema = self.generate_schema(replace_types(field_info.annotation, self.type_vars_map))
         schema = apply_annotations(schema, field_info.metadata)
 
         if not field_info.is_required():
@@ -493,6 +513,17 @@ class GenerateSchema:
         type_param = get_first_arg(type_)
         if type_param == Any:
             return self._type_schema()
+        elif isinstance(type_param, typing.TypeVar):
+            # Note: I believe that substitution would have already happened thanks to the replace_types call
+            # If we eventually add support for parsing generic types and don't rely on the
+            if type_param.__bound__:
+                return core_schema.is_subclass_schema(type_param.__bound__)
+            elif type_param.__constraints__:
+                return core_schema.union_schema(
+                    *[self.generate_schema(typing.Type[c]) for c in type_param.__constraints__]
+                )
+            else:
+                return self._type_schema()
         else:
             return core_schema.is_subclass_schema(type_param)
 
