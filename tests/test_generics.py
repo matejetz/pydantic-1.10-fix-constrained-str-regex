@@ -1210,15 +1210,15 @@ def test_generic_recursive_models(create_module):
 
             model_config = dict(undefined_types_warning=False)
 
-        class Model2(BaseModel, Generic[T]):
-            ref: Union[T, Model1[T]]
+        S = TypeVar("S")
+        class Model2(BaseModel, Generic[S]):
+            ref: Union[S, Model1[S]]
 
             model_config = dict(undefined_types_warning=False)
 
         Model1.model_rebuild()
 
     Model1 = module.Model1
-    Model2 = module.Model2
 
     with pytest.raises(ValidationError) as exc_info:
         Model1[str].model_validate(dict(ref=dict(ref=dict(ref=dict(ref=123)))))
@@ -1242,7 +1242,7 @@ def test_generic_recursive_models(create_module):
             'type': 'dict_type',
         },
     ]
-    result = Model1(ref=Model2(ref=Model1(ref=Model2(ref='123'))))
+    result = Model1[str].model_validate(dict(ref=dict(ref=dict(ref=dict(ref='123')))))
     assert result.model_dump() == {'ref': {'ref': {'ref': {'ref': '123'}}}}
 
 
