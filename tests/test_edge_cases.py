@@ -1202,15 +1202,17 @@ def test_multiple_errors():
             'loc': (
                 'a',
                 (
-                    'lax-or-strict[lax=function-after[DecimalValidator'
-                    '(allow_inf_nan=False, check_digits=False, strict=False)'
-                    '(), union[is-instance[Decimal],int,float,constrained-str]],strict=is-instance[Decimal]]',
+                    'lax-or-strict['
+                    'lax=function-after[DecimalValidator(allow_inf_nan=False, check_digits=False, strict=False)(),'
+                    ' union[is-instance[Decimal],int,float,constrained-str]],strict=is-instance[Decimal]'
+                    ']'
                 ),
             ),
             'msg': 'Input should be a valid decimal',
             'input': 'foobar',
         },
     ]
+
     assert Model(a=1.5).a == 1.5
     assert Model(a=None).a is None
 

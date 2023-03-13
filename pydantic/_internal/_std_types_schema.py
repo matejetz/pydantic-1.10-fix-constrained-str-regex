@@ -126,6 +126,7 @@ def decimal_schema(_schema_generator: GenerateSchema, _decimal_type: type[Decima
                 strict=True,
             ),
             decimal_validator,
+            metadata=metadata,
         ),
         strict_schema=core_schema.is_instance_schema(Decimal),
         metadata=metadata,
@@ -183,15 +184,6 @@ def _deque_ser_schema(inner_schema: core_schema.CoreSchema | None = None) -> cor
     return core_schema.function_wrap_ser_schema(_serializers.serialize_deque, inner_schema or core_schema.any_schema())
 
 
-def list_like_schema(inner_schema: core_schema.CoreSchema | None) -> core_schema.UnionSchema:
-    return core_schema.union_schema(
-        core_schema.list_schema(inner_schema),
-        core_schema.set_schema(inner_schema),
-        core_schema.frozenset_schema(inner_schema),
-        core_schema.tuple_variable_schema(inner_schema),
-    )
-
-
 def _deque_any_schema() -> core_schema.LaxOrStrictSchema:
     return core_schema.lax_or_strict_schema(
         lax_schema=core_schema.function_wrap_schema(
@@ -223,7 +215,13 @@ def deque_schema(schema_generator: GenerateSchema, obj: Any) -> core_schema.Core
         inner_schema = schema_generator.generate_schema(arg)
         return core_schema.lax_or_strict_schema(
             lax_schema=core_schema.function_after_schema(
-                list_like_schema(inner_schema),
+                core_schema.union_schema(
+                    core_schema.chain_schema(
+                        core_schema.is_instance_schema(deque),
+                        core_schema.list_schema(inner_schema, allow_any_iter=True),
+                    ),
+                    core_schema.list_schema(inner_schema),
+                ),
                 _validators.deque_typed_validator,
             ),
             strict_schema=core_schema.function_after_schema(
@@ -285,7 +283,7 @@ def ip_v4_address_schema(_schema_generator: GenerateSchema, _obj: Any) -> core_s
     )
     return core_schema.lax_or_strict_schema(
         lax_schema=core_schema.function_plain_schema(_validators.ip_v4_address_validator, metadata=metadata),
-        strict_schema=core_schema.is_instance_schema(IPv4Address),
+        strict_schema=core_schema.is_instance_schema(IPv4Address, metadata=metadata),
         serialization=core_schema.to_string_ser_schema(),
     )
 
@@ -297,7 +295,7 @@ def ip_v4_interface_schema(_schema_generator: GenerateSchema, _obj: Any) -> core
     )
     return core_schema.lax_or_strict_schema(
         lax_schema=core_schema.function_plain_schema(_validators.ip_v4_interface_validator, metadata=metadata),
-        strict_schema=core_schema.is_instance_schema(IPv4Interface),
+        strict_schema=core_schema.is_instance_schema(IPv4Interface, metadata=metadata),
         serialization=core_schema.to_string_ser_schema(),
     )
 
@@ -309,7 +307,7 @@ def ip_v4_network_schema(_schema_generator: GenerateSchema, _obj: Any) -> core_s
     )
     return core_schema.lax_or_strict_schema(
         lax_schema=core_schema.function_plain_schema(_validators.ip_v4_network_validator, metadata=metadata),
-        strict_schema=core_schema.is_instance_schema(IPv4Network),
+        strict_schema=core_schema.is_instance_schema(IPv4Network, metadata=metadata),
         serialization=core_schema.to_string_ser_schema(),
     )
 
@@ -321,7 +319,7 @@ def ip_v6_address_schema(_schema_generator: GenerateSchema, _obj: Any) -> core_s
     )
     return core_schema.lax_or_strict_schema(
         lax_schema=core_schema.function_plain_schema(_validators.ip_v6_address_validator, metadata=metadata),
-        strict_schema=core_schema.is_instance_schema(IPv6Address),
+        strict_schema=core_schema.is_instance_schema(IPv6Address, metadata=metadata),
         serialization=core_schema.to_string_ser_schema(),
     )
 
@@ -333,7 +331,7 @@ def ip_v6_interface_schema(_schema_generator: GenerateSchema, _obj: Any) -> core
     )
     return core_schema.lax_or_strict_schema(
         lax_schema=core_schema.function_plain_schema(_validators.ip_v6_interface_validator, metadata=metadata),
-        strict_schema=core_schema.is_instance_schema(IPv6Interface),
+        strict_schema=core_schema.is_instance_schema(IPv6Interface, metadata=metadata),
         serialization=core_schema.to_string_ser_schema(),
     )
 
@@ -345,7 +343,7 @@ def ip_v6_network_schema(_schema_generator: GenerateSchema, _obj: Any) -> core_s
     )
     return core_schema.lax_or_strict_schema(
         lax_schema=core_schema.function_plain_schema(_validators.ip_v6_network_validator, metadata=metadata),
-        strict_schema=core_schema.is_instance_schema(IPv6Network),
+        strict_schema=core_schema.is_instance_schema(IPv6Network, metadata=metadata),
         serialization=core_schema.to_string_ser_schema(),
     )
 
