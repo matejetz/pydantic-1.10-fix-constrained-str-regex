@@ -652,7 +652,7 @@ class BaseModel(_repr.Representation, metaclass=ModelMetaclass):
     ) -> type[BaseModel] | _forward_ref.PydanticForwardRef:
         cached = _generics.get_cached_generic_type_early(cls, typevar_values)
         if cached is not None:
-            return cached
+            return cached.__pydantic_generic_alias__
 
         if cls is BaseModel:
             raise TypeError('Type parameters should be placed on typing.Generic, not BaseModel')
@@ -664,6 +664,12 @@ class BaseModel(_repr.Representation, metaclass=ModelMetaclass):
         if not isinstance(typevar_values, tuple):
             typevar_values = (typevar_values,)
         _generics.check_parameters_count(cls, typevar_values)
+
+        if not hasattr(cls, '__pydantic_generic_alias__'):
+            generic_alias = super().__class_getitem__(typevar_values)
+        else:
+            generic_alias = cls.__pydantic_generic_alias__[typevar_values]
+
 
         # Build map from generic typevars to passed params
         typevars_map: dict[_typing_extra.TypeVarType, type[Any]] = dict(
@@ -691,8 +697,10 @@ class BaseModel(_repr.Representation, metaclass=ModelMetaclass):
 
                 cached = _generics.get_cached_generic_type_late(cls, typevar_values, origin, args)
                 if cached is not None:
-                    return cached
+                    return cached.__pydantic_generic_alias__
                 submodel = _generics.create_generic_submodel(model_name, origin, args, params)
+                submodel.__pydantic_generic_alias__ = generic_alias
+                generic_alias.__origin__ = submodel
 
                 # Update cache
                 _generics.set_cached_generic_type(cls, typevar_values, submodel, origin, args)
@@ -700,7 +708,7 @@ class BaseModel(_repr.Representation, metaclass=ModelMetaclass):
                 # Doing the rebuild _after_ populating the cache prevents infinite recursion
                 submodel.model_rebuild(force=True, raise_errors=False, typevars_map=typevars_map)
 
-        return submodel
+        return submodel.__pydantic_generic_alias__
 
     @classmethod
     def model_parametrized_name(cls, params: tuple[type[Any], ...]) -> str:
