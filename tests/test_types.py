@@ -3457,132 +3457,82 @@ def test_deque_generic_success_strict(cls, value: Any, result):
 
 
 @pytest.mark.parametrize(
-    'cls,value,expected_errors',
+    'cls,value,expected_error',
     (
         (
             float,
             {1, 2, 3},
-            [
-                {
-                    'type': 'is_instance_of',
-                    'loc': ('v', 'chain[is-instance[deque],list[float]]'),
-                    'msg': 'Input should be an instance of deque',
-                    'input': {1, 2, 3},
-                    'ctx': {'class': 'deque'},
-                },
-                {
-                    'type': 'list_type',
-                    'loc': ('v', 'list[float]'),
-                    'msg': 'Input should be a valid list/array',
-                    'input': {1, 2, 3},
-                },
-            ],
+            {
+                'type': 'list_type',
+                'loc': ('v',),
+                'msg': 'Input should be a valid list/array',
+                'input': {1, 2, 3},
+            },
         ),
         (
             float,
             frozenset((1, 2, 3)),
-            [
-                {
-                    'type': 'is_instance_of',
-                    'loc': ('v', 'chain[is-instance[deque],list[float]]'),
-                    'msg': 'Input should be an instance of deque',
-                    'input': frozenset({1, 2, 3}),
-                    'ctx': {'class': 'deque'},
-                },
-                {
-                    'type': 'list_type',
-                    'loc': ('v', 'list[float]'),
-                    'msg': 'Input should be a valid list/array',
-                    'input': frozenset({1, 2, 3}),
-                },
-            ],
+            {
+                'type': 'list_type',
+                'loc': ('v',),
+                'msg': 'Input should be a valid list/array',
+                'input': frozenset((1, 2, 3)),
+            },
         ),
         (
             int,
             [1, 'a', 3],
-            [
-                {
-                    'type': 'is_instance_of',
-                    'loc': ('v', 'chain[is-instance[deque],list[int]]'),
-                    'msg': 'Input should be an instance of deque',
-                    'input': [1, 'a', 3],
-                    'ctx': {'class': 'deque'},
-                },
-                {
-                    'type': 'int_parsing',
-                    'loc': ('v', 'list[int]', 1),
-                    'msg': 'Input should be a valid integer, unable to parse string as an integer',
-                    'input': 'a',
-                },
-            ],
+            {
+                'type': 'int_parsing',
+                'loc': ('v', 1),
+                'msg': 'Input should be a valid integer, unable to parse string as an integer',
+                'input': 'a',
+            },
         ),
         (
             int,
             (1, 2, 'a'),
-            [
-                {
-                    'type': 'is_instance_of',
-                    'loc': ('v', 'chain[is-instance[deque],list[int]]'),
-                    'msg': 'Input should be an instance of deque',
-                    'input': (1, 2, 'a'),
-                    'ctx': {'class': 'deque'},
-                },
-                {
-                    'type': 'int_parsing',
-                    'loc': ('v', 'list[int]', 2),
-                    'msg': 'Input should be a valid integer, unable to parse string as an integer',
-                    'input': 'a',
-                },
-            ],
+            {
+                'type': 'int_parsing',
+                'loc': ('v', 2),
+                'msg': 'Input should be a valid integer, unable to parse string as an integer',
+                'input': 'a',
+            },
         ),
         (
             Tuple[int, str],
             ((1, 'a'), ('a', 'a'), (3, 'c')),
-            [
-                {
-                    'type': 'is_instance_of',
-                    'loc': ('v', 'chain[is-instance[deque],list[tuple[int, str]]]'),
-                    'msg': 'Input should be an instance of deque',
-                    'input': ((1, 'a'), ('a', 'a'), (3, 'c')),
-                    'ctx': {'class': 'deque'},
-                },
-                {
-                    'type': 'int_parsing',
-                    'loc': ('v', 'list[tuple[int, str]]', 1, 0),
-                    'msg': 'Input should be a valid integer, unable to parse string as an integer',
-                    'input': 'a',
-                },
-            ],
+            {
+                'type': 'int_parsing',
+                'loc': ('v', 1, 0),
+                'msg': 'Input should be a valid integer, unable to parse string as an integer',
+                'input': 'a',
+            },
         ),
         (
             List[int],
             [{'a': 1, 'b': 2}, [1, 2], [2, 3]],
-            [
-                {
-                    'type': 'is_instance_of',
-                    'loc': ('v', 'chain[is-instance[deque],list[list[int]]]'),
-                    'msg': 'Input should be an instance of deque',
-                    'input': [{'a': 1, 'b': 2}, [1, 2], [2, 3]],
-                    'ctx': {'class': 'deque'},
+            {
+                'type': 'list_type',
+                'loc': ('v', 0),
+                'msg': 'Input should be a valid list/array',
+                'input': {
+                    'a': 1,
+                    'b': 2,
                 },
-                {
-                    'type': 'list_type',
-                    'loc': ('v', 'list[list[int]]', 0),
-                    'msg': 'Input should be a valid list/array',
-                    'input': {'a': 1, 'b': 2},
-                },
-            ],
+            },
         ),
     ),
 )
-def test_deque_fails(cls, value, expected_errors):
+def test_deque_fails(cls, value, expected_error):
     class Model(BaseModel):
         v: Deque[cls]
 
     with pytest.raises(ValidationError) as exc_info:
         Model(v=value)
     # debug(exc_info.value.errors())
-    assert expected_errors == exc_info.value.errors()
+    assert len(exc_info.value.errors()) == 1
+    assert expected_error == exc_info.value.errors()[0]
 
 
 def test_deque_model():

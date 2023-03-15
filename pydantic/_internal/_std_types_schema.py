@@ -215,14 +215,9 @@ def deque_schema(schema_generator: GenerateSchema, obj: Any) -> core_schema.Core
         inner_schema = schema_generator.generate_schema(arg)
         return core_schema.lax_or_strict_schema(
             lax_schema=core_schema.function_after_schema(
-                core_schema.union_schema(
-                    core_schema.chain_schema(
-                        core_schema.is_instance_schema(deque),
-                        core_schema.list_schema(inner_schema, allow_any_iter=True),
-                    ),
-                    core_schema.list_schema(inner_schema),
-                ),
+                core_schema.list_schema(inner_schema),
                 _validators.deque_typed_validator,
+                serialization=_deque_ser_schema(inner_schema),
             ),
             strict_schema=core_schema.function_after_schema(
                 core_schema.chain_schema(
