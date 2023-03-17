@@ -84,7 +84,7 @@ def test_simple_copy():
 @pytest.fixture(scope='session', name='ModelTwo')
 def model_two_fixture():
     class ModelTwo(BaseModel):
-        __foo__ = PrivateAttr({'private'})
+        _foo_ = PrivateAttr({'private'})
 
         a: float
         b: int = 10
@@ -94,10 +94,9 @@ def model_two_fixture():
     return ModelTwo
 
 
-@pytest.mark.xfail(reason='working on V2')
 def test_deep_copy(ModelTwo):
     m = ModelTwo(a=24, d=Model(a='12'))
-    m.__foo__ = {'new value'}
+    m._foo_ = {'new value'}
     m2 = m.copy(deep=True)
 
     assert m.a == m2.a == 24
@@ -106,8 +105,8 @@ def test_deep_copy(ModelTwo):
     assert m.d is not m2.d
     assert m == m2
     assert m.model_fields == m2.model_fields
-    assert m.__foo__ == m2.__foo__
-    assert m.__foo__ is not m2.__foo__
+    assert m._foo_ == m2._foo_
+    assert m._foo_ is not m2._foo_
 
 
 @pytest.mark.xfail(reason='working on V2')
@@ -239,7 +238,6 @@ def test_copy_update_unset():
     )
 
 
-@pytest.mark.xfail(reason='working on V2')
 def test_copy_set_fields(ModelTwo):
     m = ModelTwo(a=24, d=Model(a='12'))
     m2 = m.copy()
@@ -270,29 +268,28 @@ def test_recursive_pickle(ModelTwo):
     assert m.d.a == 123.45
     assert m2.d.a == 123.45
     assert m.model_fields == m2.model_fields
-    assert m.__foo__ == m2.__foo__
+    assert m._foo_ == m2._foo_
 
 
 @pytest.mark.xfail(reason='working on V2')
 def test_pickle_undefined(ModelTwo):
     m = ModelTwo(a=24, d=Model(a='123.45'))
     m2 = pickle.loads(pickle.dumps(m))
-    assert m2.__foo__ == {'private'}
+    assert m2._foo_ == {'private'}
 
-    m.__foo__ = Undefined
+    m._foo_ = Undefined
     m3 = pickle.loads(pickle.dumps(m))
-    assert not hasattr(m3, '__foo__')
+    assert not hasattr(m3, '_foo_')
 
 
-@pytest.mark.xfail(reason='working on V2')
 def test_copy_undefined(ModelTwo):
     m = ModelTwo(a=24, d=Model(a='123.45'))
     m2 = m.copy()
-    assert m2.__foo__ == {'private'}
+    assert m2._foo_ == {'private'}
 
-    m.__foo__ = Undefined
+    m._foo_ = Undefined
     m3 = m.copy()
-    assert not hasattr(m3, '__foo__')
+    assert not hasattr(m3, '_foo_')
 
 
 def test_immutable_copy_with_frozen():
@@ -376,3 +373,17 @@ def test_copy_with_excluded_fields():
 
     assert 'dob' in user.__fields_set__
     assert 'dob' not in user_copy.__fields_set__
+
+
+def test_dunder_copy(ModelTwo):
+    m = ModelTwo(a=24, d=Model(a='12'))
+    m2 = m.__copy__()
+    assert m is not m2
+
+    assert m.a == m2.a == 24
+    assert isinstance(m2.d, Model)
+    assert m.d is m2.d
+    assert m.d.a == m2.d.a == 12
+
+    m.a = 12
+    assert m.a != m2.a
