@@ -2,12 +2,12 @@ from contextlib import nullcontext as does_not_raise
 from typing import Any, ContextManager, List, Optional
 
 import pytest
+from dirty_equals import IsStr
 
 from pydantic import BaseModel, ConfigDict, Extra, ValidationError
 from pydantic.fields import Field
 
 
-@pytest.mark.xfail(reason='working on V2')
 def test_alias_generator():
     def to_camel(string: str):
         return ''.join(x.capitalize() for x in string.split('_'))
@@ -26,6 +26,8 @@ def test_alias_generator():
 
 @pytest.mark.xfail(reason='working on V2')
 def test_alias_generator_with_field_schema():
+    # TODO: Are we dropping Config.fields?
+
     def to_upper_case(string: str):
         return string.upper()
 
@@ -44,7 +46,6 @@ def test_alias_generator_with_field_schema():
     assert m.model_dump(by_alias=True) == data
 
 
-@pytest.mark.xfail(reason='working on V2')
 def test_alias_generator_wrong_type_error():
     def return_bytes(string):
         return b'not a string'
@@ -55,7 +56,7 @@ def test_alias_generator_wrong_type_error():
             model_config = ConfigDict(alias_generator=return_bytes)
             bar: Any
 
-    assert str(e.value) == "Config.alias_generator must return str, not <class 'bytes'>"
+    assert str(e.value) == IsStr(regex="alias_generator <function .*> must return str, not <class 'bytes'>")
 
 
 @pytest.mark.xfail(reason='working on V2')
@@ -112,6 +113,8 @@ def test_pop_by_field_name():
 
 @pytest.mark.xfail(reason='working on V2')
 def test_alias_child_precedence():
+    # TODO: Need to decide what we are doing with fields in model_config
+    #   If dropping completely, should we drop this test? If not, is there a migration path?
     class Parent(BaseModel):
         x: int
 
@@ -128,7 +131,6 @@ def test_alias_child_precedence():
     assert Child.model_fields['x'].alias == 'x2'
 
 
-@pytest.mark.xfail(reason='working on V2')
 def test_alias_generator_parent():
     class Parent(BaseModel):
         model_config = ConfigDict(populate_by_name=True, alias_generator=lambda f_name: f_name + '1')
@@ -142,7 +144,6 @@ def test_alias_generator_parent():
     assert Child.model_fields['x'].alias == 'x2'
 
 
-@pytest.mark.xfail(reason='working on V2')
 def test_alias_generator_on_parent():
     class Parent(BaseModel):
         model_config = ConfigDict(alias_generator=lambda x: x.upper())
@@ -160,7 +161,6 @@ def test_alias_generator_on_parent():
     assert Child.model_fields['z'].alias == 'Z'
 
 
-@pytest.mark.xfail(reason='working on V2')
 def test_alias_generator_on_child():
     class Parent(BaseModel):
         x: bool = Field(..., alias='abc')
@@ -172,7 +172,7 @@ def test_alias_generator_on_child():
         y: str
         z: str
 
-    assert [f.alias for f in Parent.model_fields.values()] == ['abc', 'y']
+    assert [f.alias for f in Parent.model_fields.values()] == ['abc', None]
     assert [f.alias for f in Child.model_fields.values()] == ['abc', 'Y', 'Z']
 
 
@@ -194,6 +194,7 @@ def test_low_priority_alias():
 
 @pytest.mark.xfail(reason='working on V2')
 def test_low_priority_alias_config():
+    # TODO: Are we dropping Config.fields?
     class Parent(BaseModel):
         x: bool
         y: str
@@ -216,6 +217,7 @@ def test_low_priority_alias_config():
 
 @pytest.mark.xfail(reason='working on V2')
 def test_field_vs_config():
+    # TODO: Are we dropping Config.fields?
     class Model(BaseModel):
         x: str = Field(..., alias='x_on_field')
         y: str
@@ -229,6 +231,7 @@ def test_field_vs_config():
 
 @pytest.mark.xfail(reason='working on V2')
 def test_alias_priority():
+    # TODO: Are we dropping Config.fields?
     class Parent(BaseModel):
         a: str = Field(..., alias='a_field_parent')
         b: str = Field(..., alias='b_field_parent')
