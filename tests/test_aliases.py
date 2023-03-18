@@ -26,8 +26,7 @@ def test_alias_generator():
 
 @pytest.mark.xfail(reason='working on V2')
 def test_alias_generator_with_field_schema():
-    # TODO: Are we dropping Config.fields?
-
+    # TODO: Need to remove all tests of Config.fields -- we are definitely removing this
     def to_upper_case(string: str):
         return string.upper()
 
@@ -113,8 +112,6 @@ def test_pop_by_field_name():
 
 @pytest.mark.xfail(reason='working on V2')
 def test_alias_child_precedence():
-    # TODO: Need to decide what we are doing with fields in model_config
-    #   If dropping completely, should we drop this test? If not, is there a migration path?
     class Parent(BaseModel):
         x: int
 
@@ -194,7 +191,6 @@ def test_low_priority_alias():
 
 @pytest.mark.xfail(reason='working on V2')
 def test_low_priority_alias_config():
-    # TODO: Are we dropping Config.fields?
     class Parent(BaseModel):
         x: bool
         y: str
@@ -217,7 +213,6 @@ def test_low_priority_alias_config():
 
 @pytest.mark.xfail(reason='working on V2')
 def test_field_vs_config():
-    # TODO: Are we dropping Config.fields?
     class Model(BaseModel):
         x: str = Field(..., alias='x_on_field')
         y: str
@@ -231,7 +226,6 @@ def test_field_vs_config():
 
 @pytest.mark.xfail(reason='working on V2')
 def test_alias_priority():
-    # TODO: Are we dropping Config.fields?
     class Parent(BaseModel):
         a: str = Field(..., alias='a_field_parent')
         b: str = Field(..., alias='b_field_parent')
