@@ -685,6 +685,8 @@ class BaseModel(_repr.Representation, metaclass=ModelMetaclass):
         cls = type(self)
         m = cls.__new__(cls)
         _object_setattr(m, '__dict__', deepcopy(self.__dict__, memo=memo))
+        # This next line doesn't need a deepcopy because __fields_set__ is a set[str],
+        # and attempting a deepcopy would be marginally slower.
         _object_setattr(m, '__fields_set__', copy(self.__fields_set__))
         for name in self.__private_attributes__:
             value = getattr(self, name, Undefined)
